@@ -253,9 +253,14 @@ direction thumbnails), so the default of 120/min runs out within seconds. Set
 low. The panel itself has a separate bucket, so browsing it cannot starve the
 image API.
 
-**Behind a proxy.** Leave `AVATAR_IMAGING_PUBLIC_URL` empty: the panel builds
-relative URLs, so everything stays on one origin and there is never a CORS or
-mixed-content problem.
+**Behind a proxy.** `AVATAR_IMAGING_PUBLIC_URL` only affects which host is
+written into the URLs the panel shows and copies. Left empty, the panel requests
+images relatively (never a CORS or mixed-content problem) and displays them
+against the address you are browsing from, so a copied URL is always complete
+and usable. Set it to the public address — `https://avatar.your-hotel.example` —
+when the panel runs somewhere other than where the images are served from, or
+when you want copied URLs to carry the production domain regardless of where you
+opened the panel.
 
 #### Username search — three modes
 
@@ -354,12 +359,128 @@ If you only set `AVATAR_IMAGING_API_KEYS`, the panel's own image requests need a
 key too; give it a dedicated one via `AVATAR_IMAGING_GENERATE_KEY` (it is
 visible in the page's HTML, so never an admin key).
 
+### Scene composer — `GET /Generate/scene`
+
+A layer-based composer opened from the **Create a scene** button in the panel
+header. A layer is an avatar, an image or a line of text; a single avatar on a
+transparent background is simply a one-layer scene.
+
+Drag layers on the canvas, reorder them front/back, scale, set opacity, and give
+each character its own direction, action, gesture, effect and speech bubble —
+bubbles are the emulator's own, rendered by `/avatarimage`. Facing left is a
+matter of body/head direction rather than a mirror, so the bubble text always
+stays readable. The background is transparent, a solid colour or an image, with cover / contain /
+stretch / tile plus an X-Y offset and a zoom — drag it straight on the canvas, or
+type the values. **Smooth imported images** (on by default) is what keeps a large
+background from turning into moiré once it is scaled down; avatars are always
+drawn nearest-neighbour regardless, so pixel art never blurs. The panel has the same idea in miniature: `bg_color` flattens a
+single avatar onto a colour rather than leaving it transparent.
+
+Two ways out:
+
+- **Download PNG** — composed in the browser, nothing hits the server.
+- **Scene URL** — `GET /scene?s=<encoded scene>` renders the whole thing
+  server-side and returns one PNG, so it can be embedded in an article with a
+  plain `<img>` tag. Cached and ETagged like `/avatarimage`.
+
+**Animate the scene** composes an APNG instead: every avatar layer is rendered
+with all its frames, and the timeline runs for the lowest common multiple of the
+layer frame counts (capped at `AVATAR_IMAGING_MAX_FRAMES`), so a three-frame wave
+and a four-frame dance stay in step instead of drifting apart. Animated scenes
+are produced by the server, so the download comes from `/scene` rather than from
+the browser canvas — locally imported images are left out of it.
+
+```env
+AVATAR_IMAGING_SCENE=1
+AVATAR_IMAGING_SCENE_MAX_LAYERS=24
+AVATAR_IMAGING_SCENE_MAX_SIZE=2000
+AVATAR_IMAGING_SCENE_IMAGE_HOSTS=cdn.your-hotel.example,your-hotel.example
+```
+
+Image layers and backgrounds go through an allow-list, because the **server**
+fetches those URLs when rendering `/scene` — without one it would be an open
+proxy into your network. The hosts of `NITRO_GAMEDATA_URL`, `NITRO_ASSET_URL`
+and `AVATAR_IMAGING_PUBLIC_URL` are trusted automatically, so your own CDN
+generally works with nothing set; `AVATAR_IMAGING_SCENE_IMAGE_HOSTS` adds more.
+Subdomains of a listed host are allowed.
+
+Set `AVATAR_IMAGING_SCENE_IMAGE_HOSTS=*` to lift the restriction entirely — only
+sensible on a trusted network, since the server then fetches any URL a scene
+asks for. The allowed hosts are printed at startup.
+
+For a one-off background there is also **Import from my computer**: the file
+becomes a data URL, so it shows in the preview and in the PNG download without
+touching the allow-list. It cannot ride along in the scene URL — the server never
+receives it — and the editor says so.
+
+The browser side loads remote images through `GET /Generate/image?u=…`, a proxy
+guarded by the same allow-list. That keeps the editor's canvas same-origin, so
+the **PNG export includes the background** instead of silently dropping it to a
+CORS taint. A blocked host is reported in the editor as soon as the URL is typed,
+rather than at export time.
+
+### Chat bubble styles
+
+`bubble=<id>` swaps the engine's speech bubble for one of the Habbo sprites in
+`bubbles/`, in the panel and on scene avatars alike:
+
+```
+/avatarimage?figure=hd-180-1.ch-255-66&text=Hello!&bubble=23
+```
+
+The sprite is a fixed template, so it is three-sliced: everything left of the
+message area is kept, the message column is repeated to fit the text, and the
+rounded end is drawn last. Where the message area starts is detected once per
+sprite by walking in from the right until the flat fill colour changes, which is
+also where the text is placed. Pointers and end decorations are matched from the
+filenames (`bubble_2_31_pointer.png` serves both 2 and 31).
+
+With a style selected the avatar is rendered *without* a bubble and the sprite is
+composited above it, frame by frame, so an animated avatar keeps its animation.
+The bubble colour picker is replaced by the style picker plus a live preview
+rendered by `GET /Generate/bubble.png?id=…&text=…`. Set
+`AVATAR_IMAGING_CHAT_BUBBLES=0` to hide the feature and keep the engine bubble.
+
+### Habbo typefaces (scene only)
+
+Text layers can be set to a pixel typeface instead of a plain system font. The
+sheets live in `fonts/` with a `fonts.json` manifest listing name and file — drop
+a new sheet in and it is picked up on the next start.
+
+Each sheet is a single horizontal strip of a–z. On first use the service scans it
+column by column to find the glyphs, glues back one-pixel slivers, and discards
+runs whose width is wildly off the median (border strips, a logo tacked on after
+the alphabet). Sheets whose letters physically touch cannot be sliced apart and
+are skipped with a warning at startup rather than rendered as garbage — five of
+the sixteen shipped sheets fall in that group. Sheets with an opaque backdrop are
+colour-keyed once and served transparent, so the same pixels reach the browser
+and the server.
+
+The layout routine is written once in `src/font-layout.mjs` and injected into the
+editor page, so the live preview, the browser PNG export and the `/scene` render
+place every glyph identically. Typefaces are their own colours, so the colour
+picker is replaced by letter spacing when one is selected.
+
+Set `AVATAR_IMAGING_HABBO_FONTS=0` to hide the feature. It exists only in the
+scene composer, never in the plain panel.
+
+### Wardrobe
+
+Both the panel and the scene composer have a **Change clothes** button that opens
+a visual catalogue built from your own `FigureData.json`: categories down the
+side, one rendered thumbnail per item, gender and HC filters, and the palette of
+the selected piece as clickable swatches. Thumbnails load lazily as you scroll.
+
+Since browsing renders one image per item, keep `AVATAR_IMAGING_RATELIMIT_MAX`
+generous (600+). Set `AVATAR_IMAGING_WARDROBE=0` to hide the feature.
+
 ### Query parameters
 
 `figure` (required) · `action=wlk,wav,drk=1` · `gesture=std|agr|sad|sml|srp` ·
 `direction=0-7` · `head_direction=0-7` · `headonly=0|1` · `dance=0-4` ·
 `effect=N` · `size=s|n|l` · `frame_num=N` · `img_format=png|apng|auto` ·
-`text=` `text_color=` `bubble_color=`
+`text=` `text_color=` `bubble_color=` · `bg_color=` (hex, flattens the avatar onto
+a solid colour instead of leaving it transparent; works on APNG too)
 
 ## Run — one-shot CLI
 
