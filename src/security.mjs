@@ -1,14 +1,9 @@
-// Lightweight, dependency-free hardening middleware for the imaging service.
-
 const isLoopback = (ip) => {
     if (!ip) return false;
 
     return ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('127.');
 };
 
-// Resolve the real client IP. When a header is configured (e.g. cf-connecting-ip
-// behind Cloudflare, or x-forwarded-for behind nginx) use its first value;
-// otherwise fall back to req.ip (which honours Express `trust proxy`).
 export const makeClientIp = (headerName) => (req) => {
     if (headerName) {
         const raw = req.headers[headerName];
@@ -24,17 +19,12 @@ export const makeClientIp = (headerName) => (req) => {
     return req.ip || req.socket?.remoteAddress || 'unknown';
 };
 
-// Restrict a route to local callers only. Uses the real socket peer (not req.ip,
-// which honours X-Forwarded-For and could be spoofed) — the harness pages load
-// these routes from 127.0.0.1, so nothing external should ever reach them.
 export const loopbackOnly = (req, res, next) => {
     if (isLoopback(req.socket?.remoteAddress)) return next();
 
     res.status(404).end();
 };
 
-// Baseline response headers. Cross-Origin-Resource-Policy: cross-origin keeps
-// plain <img> embedding working from any site while nosniff/anti-frame hold.
 export const securityHeaders = (req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'DENY');
@@ -72,9 +62,6 @@ export const createApiKeyGuard = (keys) => {
     };
 };
 
-// Per-IP fixed-window rate limiter. No external store — a Map with lazy pruning,
-// which is fine for a single instance. Front with a shared limiter (nginx/CDN)
-// if you run several instances.
 export const createRateLimiter = ({ windowMs, max, clientIp }) => {
     if (!max || max <= 0) return (req, res, next) => next();
 

@@ -17,16 +17,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-RUN git clone --depth 1 --branch "${RENDERER_REF}" "${RENDERER_REPO}" renderer \
- && cd renderer && yarn install --non-interactive
+# Both the renderer and this service pin yarn@4.18.0 via the packageManager
+# field; corepack (bundled with node) provides that exact version.
+RUN corepack enable
 
-COPY package.json ./service/package.json
-RUN cd service && npm install --no-audit --no-fund
+RUN git clone --depth 1 --branch "${RENDERER_REF}" "${RENDERER_REPO}" renderer \
+ && cd renderer && yarn install
+
+COPY package.json yarn.lock .yarnrc.yml ./service/
+RUN cd service && yarn install --immutable
 
 COPY . ./service
 WORKDIR /build/service
 ENV NITRO_RENDERER_PATH=/build/renderer
-RUN npm run build && npm prune --omit=dev
+# focus --production drops the devDependencies (the build-only pixi/vite stack)
+# from node_modules, the yarn-4 equivalent of `npm prune --omit=dev`.
+RUN yarn build && yarn workspaces focus --all --production
 
 FROM node:20-bookworm-slim AS runtime
 
@@ -57,4 +63,4 @@ EXPOSE 8082
 # connections (its socket appears), then exec node so it becomes PID 1's child and
 # receives SIGTERM for a clean shutdown. Inlined (no script file) to avoid any
 # shebang/CRLF/permission pitfalls.
-ENTRYPOINT ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp >/dev/null 2>&1 & export DISPLAY=:99; for i in $(seq 1 100); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.1; done; exec node src/server.mjs"]
+ENTRYPOINT ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & export DISPLAY=:99; i=0; while [ $i -lt 100 ] && [ ! -S /tmp/.X11-unix/X99 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -S /tmp/.X11-unix/X99 ]; then echo '[entrypoint] Xvfb did not start; its output was:'; cat /tmp/xvfb.log; fi; exec node src/server.mjs"]

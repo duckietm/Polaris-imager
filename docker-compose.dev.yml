@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# [EN] Dev overlay: work on src/ without rebuilding the image. The live host
+#      sources are mounted over the ones baked into the image, and node runs
+#      with --watch so every save restarts the server in-place (a couple of
+#      seconds, mostly the renderer boot). Build the image ONCE, then:
+#
+#          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+#      A rebuild is only needed when package.json/yarn.lock change (new deps)
+#      or when the bundled renderer engine changes (harness/, vite config,
+#      RENDERER_REF) — those live in dist-node/, which is baked at build time.
+# [FR] Surcouche de développement : travailler sur src/ sans reconstruire
+#      l'image. Les sources de l'hôte sont montées par-dessus celles de
+#      l'image, et node tourne avec --watch : chaque sauvegarde redémarre le
+#      serveur sur place (quelques secondes, surtout le démarrage du moteur).
+#      Construire l'image UNE fois, puis :
+#
+#          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+#      Une reconstruction n'est nécessaire que si package.json/yarn.lock
+#      changent (nouvelles dépendances) ou si le moteur bundlé change
+#      (harness/, config Vite, RENDERER_REF) — ils vivent dans dist-node/,
+#      figé à la construction.
+# ---------------------------------------------------------------------------
+services:
+  avatar-imaging-pixinode:
+    volumes:
+      - ./src:/app/src:ro
+      - ./render.mjs:/app/render.mjs:ro
+    # [EN] Same Xvfb dance as the image entrypoint, but node --watch restarts
+    #      the server whenever a mounted file changes.
+    # [FR] Même séquence Xvfb que l'entrypoint de l'image, mais node --watch
+    #      redémarre le serveur dès qu'un fichier monté change.
+    entrypoint: ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & export DISPLAY=:99; i=0; while [ $$i -lt 100 ] && [ ! -S /tmp/.X11-unix/X99 ]; do i=$$((i+1)); sleep 0.1; done; if [ ! -S /tmp/.X11-unix/X99 ]; then echo '[entrypoint] Xvfb did not start; its output was:'; cat /tmp/xvfb.log; fi; exec node --watch src/server.mjs"]

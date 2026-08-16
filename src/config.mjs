@@ -71,5 +71,68 @@ export const CONFIG = {
 
     maxFigureLength: int(env.AVATAR_IMAGING_MAX_FIGURE_LEN, 512),
     maxActionLength: int(env.AVATAR_IMAGING_MAX_ACTION_LEN, 256),
-    maxTextLength: int(env.AVATAR_IMAGING_MAX_TEXT_LEN, 100)
+    maxTextLength: int(env.AVATAR_IMAGING_MAX_TEXT_LEN, 100),
+
+    generate: {
+
+        enabled: env.AVATAR_IMAGING_GENERATE_UI === undefined ? true : bool(env.AVATAR_IMAGING_GENERATE_UI),
+
+        path: (env.AVATAR_IMAGING_GENERATE_PATH || '/Generate').trim(),
+
+        title: (env.AVATAR_IMAGING_GENERATE_TITLE || 'Avatar Studio').trim(),
+
+        publicUrl: (env.AVATAR_IMAGING_PUBLIC_URL || '').trim().replace(/\/+$/, ''),
+
+        token: (env.AVATAR_IMAGING_GENERATE_TOKEN || '').trim(),
+
+        uiApiKey: (env.AVATAR_IMAGING_GENERATE_KEY || '').trim(),
+
+        defaultFigure: (env.AVATAR_IMAGING_DEFAULT_FIGURE || '').trim()
+            || 'hd-180-1.ch-255-66.lg-280-110.sh-305-62',
+
+        authEnabled: bool(env.AVATAR_IMAGING_GENERATE_AUTH),
+
+        authMode: ['password', 'hotel'].includes((env.AVATAR_IMAGING_GENERATE_AUTH_MODE || 'password').trim().toLowerCase())
+            ? (env.AVATAR_IMAGING_GENERATE_AUTH_MODE || 'password').trim().toLowerCase()
+            : 'password',
+
+        authUser: (env.AVATAR_IMAGING_GENERATE_USER || '').trim(),
+        authPassword: (env.AVATAR_IMAGING_GENERATE_PASSWORD || '').trim(),
+
+        authMinRank: int(env.AVATAR_IMAGING_GENERATE_MIN_RANK, 6),
+
+        authMaxAttempts: int(env.AVATAR_IMAGING_GENERATE_MAX_ATTEMPTS, 8),
+        authLockMs: int(env.AVATAR_IMAGING_GENERATE_LOCK_MS, 15 * 60 * 1000),
+
+        authSecret: (env.AVATAR_IMAGING_GENERATE_SECRET || '').trim(),
+        authTtlMs: int(env.AVATAR_IMAGING_GENERATE_SESSION_MS, 12 * 60 * 60 * 1000),
+
+        lookupUrl: (env.AVATAR_IMAGING_LOOKUP_URL || '').trim(),
+        lookupHeader: (env.AVATAR_IMAGING_LOOKUP_HEADER || 'X-API-Key').trim(),
+        lookupKey: (env.AVATAR_IMAGING_LOOKUP_KEY || '').trim(),
+        lookupTimeoutMs: int(env.AVATAR_IMAGING_LOOKUP_TIMEOUT_MS, 8000)
+    },
+
+    db: {
+
+        enabled: bool(env.AVATAR_IMAGING_DB_ENABLED)
+            && Boolean((env.AVATAR_IMAGING_DB_USER || '').trim() && (env.AVATAR_IMAGING_DB_NAME || '').trim()),
+
+        configuredButOff: !bool(env.AVATAR_IMAGING_DB_ENABLED)
+            && Boolean((env.AVATAR_IMAGING_DB_USER || '').trim()),
+
+        host: (env.AVATAR_IMAGING_DB_HOST || '127.0.0.1').trim(),
+        port: int(env.AVATAR_IMAGING_DB_PORT, 3306),
+        user: (env.AVATAR_IMAGING_DB_USER || '').trim(),
+        password: env.AVATAR_IMAGING_DB_PASSWORD || '',
+        database: (env.AVATAR_IMAGING_DB_NAME || '').trim(),
+        timeoutMs: int(env.AVATAR_IMAGING_DB_TIMEOUT_MS, 8000),
+
+        table: (env.AVATAR_IMAGING_DB_TABLE || 'users').trim(),
+        usernameColumn: (env.AVATAR_IMAGING_DB_USERNAME_COLUMN || 'username').trim(),
+        lookColumn: (env.AVATAR_IMAGING_DB_LOOK_COLUMN || 'look').trim(),
+
+        passwordColumn: (env.AVATAR_IMAGING_DB_PASSWORD_COLUMN || 'password').trim(),
+        rankColumn: (env.AVATAR_IMAGING_DB_RANK_COLUMN || 'rank').trim()
+    }
 };

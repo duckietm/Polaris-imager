@@ -1,22 +1,3 @@
-// Parse and validate the query string of GET /avatarimage into a render
-// descriptor the harness understands.
-//
-// The parameter contract mirrors Habbo's habbo-imaging/avatarimage:
-//
-//   figure          figure string to render                         (required)
-//   action          comma-separated actions, e.g. wlk,wav,drk=1      (default none)
-//   gesture         face gesture: std|agr|sad|sml|srp                (default std)
-//   direction       body direction 0-7                              (default 2)
-//   head_direction  head direction 0-7                              (default 2)
-//   headonly        0 | 1                                           (default 0)
-//   dance           dance id 0-4                                    (default 0)
-//   effect          effect id                                       (default 0)
-//   size            s (0.5) | n (1) | l (2)                         (default n)
-//   frame_num       frame to render for a still image               (default 0)
-//   img_format      png | apng | auto                               (default auto)
-//   gender          M | F | U (usually inferred from the figure)    (default none)
-
-// Habbo posture tokens -> renderer AvatarAction.POSTURE parameter.
 const POSTURES = {
     std: 'std', stand: 'std',
     wlk: 'mv', walk: 'mv', mv: 'mv', move: 'mv',
@@ -26,7 +7,6 @@ const POSTURES = {
     swim: 'swim'
 };
 
-// Habbo expression tokens -> renderer AvatarAction expression value.
 const EXPRESSIONS = {
     wav: 'wave', wave: 'wave',
     blow: 'blow', kiss: 'blow',
@@ -35,8 +15,6 @@ const EXPRESSIONS = {
     cry: 'cry'
 };
 
-// Habbo gesture tokens -> renderer AvatarAction.GESTURE parameter. 'std' means
-// "no gesture" (the standard face).
 const GESTURES = {
     std: null,
     agr: 'agr',
@@ -45,21 +23,17 @@ const GESTURES = {
     srp: 'srp'
 };
 
-// Carry (hand) vs drink/use, both keyed by hand-item id after '='.
 const CARRY_TOKENS = new Set(['crr', 'cri', 'carry']);
 const DRINK_TOKENS = new Set(['drk', 'usei', 'drink', 'use']);
 
 export class ParamError extends Error {}
 
-// Figures look like "hd-180-1.ch-255-66.lg-280-110"; actions like "wlk,drk=1".
-// Restrict to their real character sets so nothing weird reaches the renderer.
 const FIGURE_RE = /^[A-Za-z0-9._-]+$/;
 const ACTION_RE = /^[A-Za-z0-9._,=-]*$/;
 const MAX_ACTION_TOKENS = 24;
 
 const HEX_COLOR_RE = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
-// Parse a #rrggbb / rgb / rrggbb colour into a 0xRRGGBB number, else fallback.
 const parseHexColor = (value, fallback) => {
     let hex = (value ?? '').toString().trim().replace(/^#/, '');
 
@@ -103,7 +77,7 @@ export const parseAvatarParams = (query, { defaultFigure = null, maxFigureLength
     const gender = ['M', 'F', 'U'].includes(genderRaw) ? genderRaw : null;
 
     const sizeRaw = (first(query.size) ?? 'n').trim().toLowerCase();
-    // s -> half-detail 'sh' assets; n -> full 'h'; l -> full 'h' then 2x upscale.
+
     const scale = sizeRaw === 's' ? 'sh' : 'h';
     const postScale = sizeRaw === 'l' ? 2 : 1;
 
@@ -122,7 +96,6 @@ export const parseAvatarParams = (query, { defaultFigure = null, maxFigureLength
     const formatRaw = (first(query.img_format) ?? first(query.format) ?? 'auto').trim().toLowerCase();
     const format = ['png', 'apng', 'auto'].includes(formatRaw) ? formatRaw : 'auto';
 
-    // Defaults refined by the action string below.
     let posture = 'std';
     const expressions = [];
     let handItem = null;
@@ -160,13 +133,10 @@ export const parseAvatarParams = (query, { defaultFigure = null, maxFigureLength
             } else if (key === 'wav' || key === 'wave') {
                 if (!expressions.includes('wave')) expressions.push('wave');
             }
-            // Unknown tokens are ignored, matching Habbo's forgiving behaviour.
+
         }
     }
 
-    // Optional speech bubble above the avatar. Line breaks are supported via a
-    // real newline (%0A) or a literal "\n" in the query; all other control chars
-    // are stripped. The text is rendered as an image (never interpreted).
     const text = (first(query.text) ?? '')
         .toString()
         .replace(/\\n/g, '\n')

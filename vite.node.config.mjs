@@ -22,9 +22,8 @@ const RENDERER = resolveRenderer();
 if (!existsSync(resolve(RENDERER, 'index.ts'))) {
     throw new Error(
         `[avatar-imaging-pixinode] Nitro renderer not found at ${RENDERER}.\n` +
-        '  Link it (like Nitro-UI):  cd <renderer> && yarn install && yarn link\n' +
-        '                            cd <this service> && yarn link "@nitrots/nitro-renderer"\n' +
-        '  Or set NITRO_RENDERER_PATH to the renderer directory.'
+        '  Place the renderer checkout at ../Nitro-Renderer (sibling of this service),\n' +
+        '  or set NITRO_RENDERER_PATH to the renderer directory (e.g. in .env).'
     );
 }
 

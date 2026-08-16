@@ -1,10 +1,3 @@
-// Load the service's .env before any config is read. Imported first by
-// config.mjs so process.env is populated before CONFIG is built.
-//
-// Uses Node's built-in process.loadEnvFile (Node 20.12+/21.7+/22+) when
-// available, with a tiny hand-rolled parser as a fallback for older Node.
-// Existing environment variables always win over .env values.
-
 import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -16,7 +9,7 @@ if (existsSync(envPath)) {
         try {
             process.loadEnvFile(envPath);
         } catch {
-            // fall through to the manual parser
+
         }
     } else {
         try {
@@ -42,7 +35,7 @@ if (existsSync(envPath)) {
                 if (key && !(key in process.env)) process.env[key] = value;
             }
         } catch {
-            // best effort
+
         }
     }
 }

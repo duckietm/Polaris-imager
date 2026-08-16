@@ -3,9 +3,13 @@ import { createHash } from 'crypto';
 import { CONFIG, buildRendererConfig } from './config.mjs';
 import { parseAvatarParams, ParamError } from './params.mjs';
 import { encodeFrames } from './apng.mjs';
-import { RendererPool } from './renderer.mjs';
+import { RendererPool, preflightGl } from './renderer.mjs';
 import { createApiKeyGuard, createCors, createRateLimiter, makeClientIp, securityHeaders } from './security.mjs';
 import { createAccessLogger } from './logger.mjs';
+
+import { createGenerateRouter } from './generate-route.mjs';
+
+import { checkDatabase, closeDatabase } from './db.mjs';
 
 class ResponseCache {
     #map = new Map();
@@ -97,6 +101,16 @@ if (CONFIG.accessLog) {
     });
 }
 
+if (CONFIG.generate.enabled) {
+    const generateLimiter = createRateLimiter({
+        windowMs: CONFIG.rateLimitWindowMs,
+        max: CONFIG.rateLimitMax > 0 ? Math.max(30, Math.ceil(CONFIG.rateLimitMax / 4)) : 0,
+        clientIp
+    });
+
+    app.use(CONFIG.generate.path, generateLimiter, createGenerateRouter(CONFIG));
+}
+
 app.get('/health', (req, res) => {
     res.json({ status: renderer.ready ? 'ok' : 'starting', ready: renderer.ready, engine: '@pixi/node', concurrency: CONFIG.concurrency });
 });
@@ -127,7 +141,11 @@ app.get('/', (req, res) => {
             'Example:',
             '  /avatarimage?figure=hd-180-1.ch-255-66.lg-280-110.sh-305-62&action=wlk,wav&direction=2&size=l',
             '  /avatarimage?figure=hd-180-1.ch-255-66&text=Hello!&bubble_color=2266cc&text_color=ffffff',
-            ''
+            '',
+
+            ...(CONFIG.generate.enabled
+                ? [`GET ${ CONFIG.generate.path }`, '  Browser UI to build a figure and copy/download the image.', '']
+                : [])
         ].join('\n')
     );
 });
@@ -290,8 +308,62 @@ const start = async () => {
 
     await preflightGamedata();
 
+    if (CONFIG.db.configuredButOff) {
+        console.log('[pixinode] database OFF (AVATAR_IMAGING_DB_ENABLED is not true) — panel search disabled.');
+    }
+
+    if (CONFIG.db.enabled) {
+        const dbCheck = await checkDatabase(CONFIG.db, CONFIG.generate.authEnabled && CONFIG.generate.authMode === 'hotel');
+
+        if (dbCheck.ok) {
+            console.log(`[pixinode] database OK  ${ CONFIG.db.user }@${ CONFIG.db.host }:${ CONFIG.db.port }/${ CONFIG.db.database }`);
+        } else {
+            console.warn(`[pixinode] database ERR ${ dbCheck.error }`);
+            console.warn(
+                '  The panel\'s username search will not work. Check AVATAR_IMAGING_DB_* in .env\n' +
+                '  (host reachable from this process, user granted SELECT, table/column names).'
+            );
+        }
+    }
+
+    if (!await preflightGl()) {
+        process.exit(1);
+    }
+
     const server = app.listen(CONFIG.port, CONFIG.host, () => {
+
+        server.headersTimeout = 30_000;
+        server.requestTimeout = 60_000;
         console.log(`[pixinode] listening on http://${ CONFIG.host }:${ CONFIG.port }`);
+
+        if (CONFIG.generate.enabled) {
+            const base = CONFIG.generate.publicUrl || `http://${ CONFIG.host }:${ CONFIG.port }`;
+
+            console.log(`[pixinode] generator panel on ${ base }${ CONFIG.generate.path }`);
+            console.log(`[pixinode] panel access: ${
+                CONFIG.generate.authEnabled
+                    ? `login form (${ CONFIG.generate.authMode }${
+                        CONFIG.generate.authMode === 'hotel' ? `, rank >= ${ CONFIG.generate.authMinRank }` : '' })`
+                    : (CONFIG.generate.token ? '?token=' : 'PUBLIC') }`);
+
+            if (CONFIG.generate.authEnabled && CONFIG.generate.authMode === 'hotel' && !CONFIG.db.enabled) {
+                console.warn(
+                    '[pixinode] PANEL CLOSED: AUTH_MODE=hotel needs AVATAR_IMAGING_DB_ENABLED=true.\n' +
+                    '  Enable the database, or switch to AVATAR_IMAGING_GENERATE_AUTH_MODE=password.'
+                );
+            }
+
+            if (CONFIG.generate.authEnabled && CONFIG.generate.authMode !== 'hotel' && !CONFIG.generate.authPassword) {
+                console.warn('[pixinode] PANEL CLOSED: AVATAR_IMAGING_GENERATE_PASSWORD is empty.');
+            }
+
+            if (CONFIG.rateLimitMax > 0 && CONFIG.rateLimitMax < 240) {
+                console.warn(
+                    `[pixinode] AVATAR_IMAGING_RATELIMIT_MAX=${ CONFIG.rateLimitMax } is low for the generator UI:\n` +
+                    '  one preview refresh requests ~17 images. Raise it to 240+ or the page will hit 429.'
+                );
+            }
+        }
     });
 
     try {
@@ -314,6 +386,8 @@ const start = async () => {
             await renderer.close();
         } catch {
         }
+
+        await closeDatabase();
 
         process.exit(0);
     };

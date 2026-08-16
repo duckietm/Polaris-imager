@@ -1,9 +1,10 @@
 import './src/browser-globals.mjs';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { encodeFrames } from './src/apng.mjs';
 import { buildRendererConfig, FPS, MAX_FRAMES } from './src/renderer-config.mjs';
+import { preflightGl } from './src/renderer.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -84,7 +85,12 @@ if (!existsSync(BUNDLE)) {
 }
 
 const t0 = Date.now();
-const { initRenderer, renderAvatar } = await import(BUNDLE);
+
+if (!await preflightGl()) {
+    process.exit(1);
+}
+
+const { initRenderer, renderAvatar } = await import(pathToFileURL(BUNDLE).href);
 
 console.log('[spike] booting renderer under @pixi/node …');
 await initRenderer();

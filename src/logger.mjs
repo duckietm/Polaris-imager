@@ -1,12 +1,3 @@
-// Access-log writer with built-in size-based rotation. Self-contained (no deps),
-// so it works the same in Docker, systemd, or a bare process. When no log file
-// is configured, lines go to stdout (console.log) and rotation is a no-op —
-// handy if you'd rather let the platform (journald/Docker) capture stdout.
-//
-// Rotation scheme: when the active file passes maxBytes it becomes <file>.1,
-// the previous <file>.1 becomes <file>.2, … up to maxFiles; the oldest is
-// dropped. Writes during a rotation are buffered and flushed afterwards.
-
 import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 
@@ -33,7 +24,7 @@ class RotatingLogger {
     #open() {
         this.#stream = createWriteStream(this.#file, { flags: 'a' });
         this.#stream.on('error', (error) => {
-            // Never let a logging failure take down the service.
+
             console.error('[avatar-imaging] access log write failed:', error.message);
         });
     }
@@ -94,13 +85,11 @@ class RotatingLogger {
         try {
             this.#stream?.end();
         } catch {
-            // ignore
+
         }
     }
 }
 
-// Returns { write(line), close() }. Writes to a rotating file when logFile is
-// set, otherwise to stdout.
 export const createAccessLogger = ({ logFile, logMaxBytes, logMaxFiles }) => {
     if (!logFile) {
         return { write: (line) => console.log(line), close: () => {} };

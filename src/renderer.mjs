@@ -1,11 +1,61 @@
 import './browser-globals.mjs';
 import { dirname, resolve } from 'path';
 import { existsSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { CONFIG, buildRendererConfig } from './config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = resolve(HERE, '..', 'dist-node', 'boot-node.mjs');
+
+const BUNDLE_URL = pathToFileURL(BUNDLE).href;
+
+export const preflightGl = async () => {
+    let createContext;
+
+    try {
+        createContext = (await import('gl')).default;
+    } catch (error) {
+        console.error('[pixinode] the native "gl" module failed to load:', error?.message || error);
+        console.error('  Reinstall the dependencies on this machine and Node version:  yarn install');
+
+        return false;
+    }
+
+    const probe = createContext(2, 2);
+
+    if (probe) {
+        const destroyer = probe.getExtension('STACKGL_destroy_context');
+
+        if (destroyer) destroyer.destroy();
+
+        return true;
+    }
+
+    console.error('[pixinode] WebGL context creation failed: headless-gl returned null.');
+    console.error(`  DISPLAY=${ process.env.DISPLAY || '(unset)' }  LIBGL_ALWAYS_SOFTWARE=${ process.env.LIBGL_ALWAYS_SOFTWARE || '(unset)' }  GALLIUM_DRIVER=${ process.env.GALLIUM_DRIVER || '(unset)' }`);
+
+    const displayNum = (process.env.DISPLAY || '').match(/^:(\d+)/);
+
+    if (displayNum) {
+        const socket = `/tmp/.X11-unix/X${ displayNum[1] }`;
+
+        if (!existsSync(socket)) {
+            console.error(`  ${ socket } does not exist: the X/Xvfb server behind DISPLAY=${ process.env.DISPLAY } is NOT running.`);
+            console.error('  In the Docker image, check /tmp/xvfb.log inside the container for why Xvfb exited.');
+        } else {
+            console.error(`  ${ socket } exists: the X server is up, but GLX context creation still failed.`);
+            console.error('  Check that the Mesa userland is present (libgl1, libglx-mesa0, libgl1-mesa-dri, libglu1-mesa).');
+        }
+    }
+
+    console.error('  On a headless Linux host the renderer needs a virtual display and software GL:');
+    console.error('    xvfb-run -a yarn start');
+    console.error('  and without a GPU also:');
+    console.error('    LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe xvfb-run -a yarn start');
+    console.error('  The Docker image handles all of this automatically (Xvfb in the entrypoint).');
+
+    return false;
+};
 
 const fetchDefaultActions = async (actionsUrl) => {
     try {
@@ -49,7 +99,7 @@ export class RendererPool {
         globalThis.NitroConfig = config;
         globalThis.__IMAGING_OPTS__ = { fps: CONFIG.animationFps, maxFrames: CONFIG.maxFrames, debug: CONFIG.debug };
 
-        const module = await import(BUNDLE);
+        const module = await import(BUNDLE_URL);
 
         this.#initRenderer = module.initRenderer;
         this.#renderAvatar = module.renderAvatar;
