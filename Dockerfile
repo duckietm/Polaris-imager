@@ -24,12 +24,20 @@ RUN corepack enable
 RUN git clone --depth 1 --branch "${RENDERER_REF}" "${RENDERER_REPO}" renderer \
  && cd renderer && yarn install
 
-COPY package.json yarn.lock .yarnrc.yml ./service/
-RUN cd service && yarn install --immutable
+# yarn.loc[k] is a glob: the COPY succeeds even when the lockfile is absent
+# (fresh checkout, deleted by a sync, ...). With a lockfile the install is
+# reproducible (--immutable); without one it resolves and continues instead of
+# failing the first build.
+COPY package.json .yarnrc.yml yarn.loc[k] ./service/
+RUN cd service && if [ -f yarn.lock ]; then yarn install --immutable; else yarn install; fi
 
 COPY . ./service
 WORKDIR /build/service
 ENV NITRO_RENDERER_PATH=/build/renderer
+# The runtime stage copies fonts/ and bubbles/; create them here so the build
+# also succeeds from a context where they are missing (partial copy, old
+# checkout). Existing asset files from the context are kept as-is.
+RUN mkdir -p fonts bubbles
 # focus --production drops the devDependencies (the build-only pixi/vite stack)
 # from node_modules, the yarn-4 equivalent of `npm prune --omit=dev`.
 RUN yarn build && yarn workspaces focus --all --production
@@ -56,6 +64,8 @@ ENV GALLIUM_DRIVER=llvmpipe
 COPY --from=builder /build/service/package.json ./package.json
 COPY --from=builder /build/service/node_modules ./node_modules
 COPY --from=builder /build/service/src ./src
+COPY --from=builder /build/service/fonts ./fonts
+COPY --from=builder /build/service/bubbles ./bubbles
 COPY --from=builder /build/service/dist-node ./dist-node
 
 EXPOSE 8082

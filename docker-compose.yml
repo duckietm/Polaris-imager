@@ -10,8 +10,11 @@ services:
     container_name: avatar-imaging-pixinode
     restart: unless-stopped
     init: true
+    # Optional on the first start: without a .env the service boots with the
+    # defaults and logs exactly which NITRO_* URLs still need to be configured.
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "${AVATAR_IMAGING_PORT:-8082}:${AVATAR_IMAGING_PORT:-8082}"
     healthcheck:

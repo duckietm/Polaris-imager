@@ -10,7 +10,8 @@
         "spike": "yarn build && node render.mjs",
         "start": "node src/server.mjs",
         "serve": "yarn build && node src/server.mjs",
-        "pack": "node scripts/pack-release.mjs"
+        "pack": "node scripts/pack-release.mjs",
+        "check:pages": "node scripts/check-pages.mjs"
     },
     "comment": "The renderer is consumed via Vite aliases (see vite.node.config.mjs) and @pixi/node is inlined into dist-node/boot-node.mjs at build time, so @pixi/node and pixi.js are BUILD-only (devDependencies). The runtime bundle imports only the native addons gl + canvas (kept external), which stay in dependencies with upng-js (APNG) and express (HTTP). This keeps the Docker runtime image to the runtime deps only.",
     "dependencies": {
