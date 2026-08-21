@@ -66,6 +66,7 @@ COPY --from=builder /build/service/node_modules ./node_modules
 COPY --from=builder /build/service/src ./src
 COPY --from=builder /build/service/fonts ./fonts
 COPY --from=builder /build/service/bubbles ./bubbles
+COPY --from=builder /build/service/assets ./assets
 COPY --from=builder /build/service/dist-node ./dist-node
 
 EXPOSE 8082
