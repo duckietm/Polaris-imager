@@ -1,6 +1,19 @@
-import { existsSync, realpathSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
+
+// Sibling checkout names, probed in order. Both capitalisations of the current
+// repository name are listed on purpose: `git clone .../Octane-Renderer.git`
+// creates `Octane-Renderer`, which Windows matches either way but a
+// case-sensitive Linux filesystem does not. `Octance-Renderer` is the monorepo
+// sibling and `Nitro-Renderer` the legacy checkout name.
+const RENDERER_DIRECTORY_NAMES = [
+    'Octane-Renderer',
+    'octane-renderer',
+    'Octance-Renderer',
+    'Nitro-Renderer',
+    'renderer'
+];
 
 const resolveRenderer = () => {
     if (process.env.NITRO_RENDERER_PATH) return resolve(process.env.NITRO_RENDERER_PATH);
@@ -14,7 +27,9 @@ const resolveRenderer = () => {
         }
     }
 
-    return resolve(import.meta.dirname, '..', 'Octane-Renderer');
+    const candidates = RENDERER_DIRECTORY_NAMES.map((name) => resolve(import.meta.dirname, '..', name));
+
+    return candidates.find((candidate) => existsSync(resolve(candidate, 'index.ts'))) ?? candidates[0];
 };
 
 const RENDERER = resolveRenderer();
@@ -22,10 +37,43 @@ const RENDERER = resolveRenderer();
 if (!existsSync(resolve(RENDERER, 'index.ts'))) {
     throw new Error(
         `[avatar-imaging-pixinode] Nitro renderer not found at ${RENDERER}.\n` +
-        '  Place the renderer checkout at ../Nitro-Renderer (sibling of this service),\n' +
+        `  Place the renderer checkout next to this service (${RENDERER_DIRECTORY_NAMES.join(', ')}),\n` +
         '  or set NITRO_RENDERER_PATH to the renderer directory (e.g. in .env).'
     );
 }
+
+const PIXI = resolve(RENDERER, 'node_modules', 'pixi.js');
+
+if (!existsSync(resolve(PIXI, 'package.json'))) {
+    throw new Error(
+        `[avatar-imaging-pixinode] pixi.js not found at ${PIXI}.\n` +
+        '  Run `yarn install` inside the renderer checkout once so its dependencies exist.'
+    );
+}
+
+// `pixi.js` is aliased to the renderer's copy so the renderer, @pixi/node and the
+// harness all share one instance. That alias also captures subpath imports such
+// as `pixi.js/advanced-blend-modes`, which are *export map* entries with no
+// matching directory on disk — rewriting them by path yields
+// `<renderer>/node_modules/pixi.js/advanced-blend-modes` and the build dies with
+// UNLOADABLE_DEPENDENCY. Map every subpath to the ESM file its export map names,
+// so subpaths keep resolving against the same single pixi copy. (Letting them
+// fall through to normal resolution instead pulls in a *second* pixi from this
+// service's own node_modules, silently registering onto the wrong instance.)
+const pixiSubpathAlias = () => {
+    const { exports: exportMap = {} } = JSON.parse(readFileSync(resolve(PIXI, 'package.json'), 'utf8'));
+    const entries = {};
+
+    for (const [subpath, target] of Object.entries(exportMap)) {
+        if (subpath === '.' || subpath.includes('*')) continue;
+
+        const file = target?.import?.default ?? target?.import ?? target?.default;
+
+        if (typeof file === 'string') entries[`pixi.js${subpath.slice(1)}`] = resolve(PIXI, file);
+    }
+
+    return entries;
+};
 
 const alias = {
     '@nitrots/nitro-renderer': resolve(RENDERER, 'index.ts'),
@@ -42,7 +90,10 @@ const alias = {
     '@nitrots/sound': resolve(RENDERER, 'packages/sound/src/index.ts'),
     '@nitrots/utils/src': resolve(RENDERER, 'packages/utils/src'),
     '@nitrots/utils': resolve(RENDERER, 'packages/utils/src/index.ts'),
-    'pixi.js': resolve(RENDERER, 'node_modules', 'pixi.js'),
+    // The subpath entries must stay ahead of the bare 'pixi.js' alias: the first
+    // matching key wins, and the bare one would otherwise swallow them.
+    ...pixiSubpathAlias(),
+    'pixi.js': PIXI,
     'pixi-filters': resolve(RENDERER, 'node_modules', 'pixi-filters'),
     'howler': resolve(RENDERER, 'node_modules', 'howler'),
     'wasm-webp': resolve(import.meta.dirname, 'harness', 'stubs', 'wasm-webp.js'),

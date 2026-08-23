@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        RENDERER_REPO: ${RENDERER_REPO:-https://github.com/duckietm/Nitro_Render_V3.git}
+        RENDERER_REPO: ${RENDERER_REPO:-https://github.com/duckietm/Octane-Renderer.git}
         RENDERER_REF: ${RENDERER_REF:-main}
     image: avatar-imaging-pixinode:latest
     container_name: avatar-imaging-pixinode

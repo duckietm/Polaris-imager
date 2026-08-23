@@ -58,8 +58,10 @@ deploy — worthwhile at volume (e.g. ~10k renders/day).
   the standard Linux (Liberation/DejaVu), Windows (`C:\Windows\Fonts\arial.ttf`)
   and macOS Arial paths; set `AVATAR_IMAGING_FONT_FILE` for a specific file.
 - The **Nitro renderer**: keep its checkout as a sibling directory
-  (`../Nitro-Renderer`, picked up automatically) or set `NITRO_RENDERER_PATH`
-  to the renderer directory. Run `yarn install` inside the renderer once.
+  (`../Octane-Renderer`, picked up automatically — `octane-renderer`,
+  `Octance-Renderer`, `Nitro-Renderer` and `renderer` are probed too) or set
+  `NITRO_RENDERER_PATH` to the renderer directory. Run `yarn install` inside the
+  renderer once, so its own `pixi.js` is on disk.
 
 ## Setup
 
@@ -75,7 +77,7 @@ it is read by the Vite config, so there is no shell variable to re-export before
 every build (which is easy to lose on Windows):
 
 ```env
-NITRO_RENDERER_PATH=C:/dev/Nitro_Render_V3
+NITRO_RENDERER_PATH=C:/dev/Octane-Renderer
 ```
 
 ## Docker (recommended for deployment)
@@ -103,7 +105,7 @@ Notes:
 - The service listens on `AVATAR_IMAGING_PORT` (default 8082), published to the
   same host port.
 - **Renderer source.** The build clones the renderer from its public repo
-  `github.com/duckietm/Nitro_Render_V3` (branch `main`) and bundles it — you do NOT
+  `github.com/duckietm/Octane-Renderer` (branch `main`) and bundles it — you do NOT
   need the renderer checked out next to this folder. To build against a different
   fork/branch, set `RENDERER_REPO` / `RENDERER_REF`, e.g.
   `RENDERER_REF=Dev docker compose up -d --build`, or add them to `.env`.
@@ -114,6 +116,11 @@ Notes:
 - **First build is slow** (clones + installs the renderer's deps, compiles
   `canvas`/`gl`); it's layer-cached afterwards. Rebuild with
   `docker compose up -d --build`.
+- **Runtime image contents.** The final stage is `debian:bookworm-slim` plus the
+  Node binary copied from the builder — no npm, corepack or npx inside the
+  container, since it only ever runs `node src/server.mjs`. Most of the remaining
+  size is the software-GL stack (Mesa/llvmpipe) that headless-gl needs, not Node:
+  `docker history avatar-imaging-pixinode:latest` shows the split.
 - `docker compose logs -f` for output; `docker compose ps` shows `healthy` once
   the renderer has booted (the healthcheck polls `/health`).
 - **Editing `src/` without rebuilding:** the server sources are not bundled —
@@ -145,7 +152,7 @@ command below.
    ```
 2. **Prepare the renderer** (Developer PowerShell, in the repo root):
    ```
-   cd ..\Nitro-Renderer ; yarn install
+   cd ..\Octane-Renderer ; yarn install
    ```
    The build finds it as the sibling folder automatically (or set
    `NITRO_RENDERER_PATH` to the renderer folder).
@@ -185,10 +192,12 @@ command below.
   source may also want the GTK bundle — see the
   [node-canvas Windows wiki](https://github.com/Automattic/node-canvas/wiki/Installation:-Windows).
   Node 20 + prebuilds avoids all of this.
-- **`Nitro renderer not found at …\Nitro-Renderer`.** `NITRO_RENDERER_PATH` is
+- **`Nitro renderer not found at …\Octane-Renderer`.** `NITRO_RENDERER_PATH` is
   unset or wrong. Put it in `.env` (uncommented, absolute) pointing at the folder
   that contains the renderer's `index.ts` — note that a GitHub ZIP extracts to
-  `Nitro_Render_V3-main`, and sometimes nests that folder twice.
+  `Octane-Renderer-main`, and sometimes nests that folder twice.
+- **`pixi.js not found at …\node_modules\pixi.js`.** The renderer checkout is
+  there but its dependencies are not: run `yarn install` inside it once.
 - **`failed to start renderer: Only URLs with a scheme in: file, data, and node
   are supported … Received protocol 'c:'`.** Fixed: the bundle is now loaded
   through `pathToFileURL()`. If you still see it, `src/renderer.mjs` is an older
