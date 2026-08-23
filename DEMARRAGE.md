@@ -200,7 +200,7 @@ WantedBy=multi-user.target
 
 ## Redistribuer sans que les gens aient à builder
 
-Le coût de ce projet, c'est la compilation : cloner `duckietm/Nitro_Render_V3` et le bundler avec Vite. Tu le fais **une fois**, puis tu livres le résultat.
+Le coût de ce projet, c'est la compilation : cloner `duckietm/Octane-Renderer` et le bundler avec Vite. Tu le fais **une fois**, puis tu livres le résultat.
 
 ```bash
 yarn build        # -> dist-node/boot-node.mjs (le moteur Nitro bundlé)

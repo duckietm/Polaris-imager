@@ -8,6 +8,7 @@ FROM node:20-bookworm AS builder
 
 ARG RENDERER_REPO=https://github.com/duckietm/Octane-Renderer.git
 ARG RENDERER_REF=main
+ARG YARN_VERSION=4.18.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git build-essential python3 pkg-config \
@@ -18,8 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 
 # Both the renderer and this service pin yarn@4.18.0 via the packageManager
-# field; corepack (bundled with node) provides that exact version.
-RUN corepack enable
+# field; corepack (bundled with node) provides that exact version. Downloading it
+# here, in its own layer, keeps the rest of the build off the yarn CDN and means
+# a stray `yarn` outside a project directory is still 4.x and never the bundled
+# 1.22. Keep YARN_VERSION equal to the packageManager pins — corepack refuses to
+# run when they disagree.
+RUN corepack enable \
+ && corepack prepare "yarn@${YARN_VERSION}" --activate \
+ && yarn --version
 
 RUN git clone --depth 1 --branch "${RENDERER_REF}" "${RENDERER_REPO}" renderer \
  && cd renderer && yarn install
@@ -42,15 +49,28 @@ RUN mkdir -p fonts bubbles
 # from node_modules, the yarn-4 equivalent of `npm prune --omit=dev`.
 RUN yarn build && yarn workspaces focus --all --production
 
-FROM node:20-bookworm-slim AS runtime
+# Plain Debian rather than node:20-bookworm-slim: the service only ever runs
+# `node src/server.mjs`, so npm, corepack, npx and the C++ addon headers that
+# come with the Node image are dead weight (~60 MB). The Node binary itself is
+# copied from the builder below, which keeps both stages on the exact same Node
+# 20 build — and on glibc, which the prebuilt `canvas` and `gl` binaries in
+# node_modules are linked against (Alpine/musl would have to compile them from
+# source).
+FROM debian:bookworm-slim AS runtime
 
+# ca-certificates and libstdc++6 come free with the Node image; on plain Debian
+# they are explicit. Without ca-certificates every https gamedata/asset fetch
+# fails with UNABLE_TO_GET_ISSUER_CERT_LOCALLY.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates libstdc++6 libgcc-s1 \
       libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 \
       libpixman-1-0 libfontconfig1 libfreetype6 \
       libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa \
       libxi6 libxext6 libx11-6 libxfixes3 libxrandr2 libxxf86vm1 \
       xvfb fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 ENV NODE_ENV=production
