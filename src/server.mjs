@@ -1,8 +1,11 @@
 import express from 'express';
 import { createHash } from 'crypto';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { CONFIG, buildRendererConfig } from './config.mjs';
 import { parseAvatarParams, ParamError } from './params.mjs';
-import { encodeFrames } from './apng.mjs';
+import { encodeFrames, flattenFrames, upscaleNearest } from './apng.mjs';
 import { RendererPool, preflightGl } from './renderer.mjs';
 import { createApiKeyGuard, createCors, createRateLimiter, makeClientIp, securityHeaders } from './security.mjs';
 import { createAccessLogger } from './logger.mjs';
@@ -10,6 +13,9 @@ import { createAccessLogger } from './logger.mjs';
 import { createGenerateRouter } from './generate-route.mjs';
 
 import { checkDatabase, closeDatabase } from './db.mjs';
+import { decodeScene, renderScene, SceneError } from './scene.mjs';
+import { composeWithBubble, getBubble } from './chat-bubbles.mjs';
+import { renderLandingPage } from './landing-page.mjs';
 
 class ResponseCache {
     #map = new Map();
@@ -117,37 +123,76 @@ app.get('/health', (req, res) => {
 
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
-app.get('/', (req, res) => {
-    res.type('text/plain').send(
-        [
-            'Nitro avatar-imaging service (@pixi/node, headless — no browser)',
-            '',
-            'GET /avatarimage',
-            '  figure          figure string (required)',
-            '  action          comma-separated, e.g. wlk,wav,drk=1',
-            '  gesture         std | agr | sad | sml | srp   (default std)',
-            '  direction       0-7                           (default 2)',
-            '  head_direction  0-7                           (default 2)',
-            '  headonly        0 | 1                          (default 0)',
-            '  dance           0-4                            (default 0)',
-            '  effect          effect id                      (default 0)',
-            '  size            s | n | l                      (default n)',
-            '  frame_num       still-frame index              (default 0)',
-            '  img_format      png | apng | auto              (default auto)',
-            '  text            speech-bubble text above the avatar',
-            '  text_color      bubble text colour, hex        (default 000000)',
-            '  bubble_color    bubble background colour, hex  (default ffffff)',
-            '',
-            'Example:',
-            '  /avatarimage?figure=hd-180-1.ch-255-66.lg-280-110.sh-305-62&action=wlk,wav&direction=2&size=l',
-            '  /avatarimage?figure=hd-180-1.ch-255-66&text=Hello!&bubble_color=2266cc&text_color=ffffff',
-            '',
+const apiReference = () => [
+    'Nitro avatar-imaging service (@pixi/node, headless — no browser)',
+    '',
+    'GET /avatarimage',
+    '  figure          figure string (required)',
+    '  action          comma-separated, e.g. wlk,wav,drk=1',
+    '  gesture         std | agr | sad | sml | srp   (default std)',
+    '  direction       0-7                           (default 2)',
+    '  head_direction  0-7                           (default 2)',
+    '  headonly        0 | 1                          (default 0)',
+    '  dance           0-4                            (default 0)',
+    '  effect          effect id                      (default 0)',
+    '  size            s | n | l                      (default n)',
+    '  frame_num       still-frame index              (default 0)',
+    '  img_format      png | apng | auto              (default auto)',
+    '  text            speech-bubble text above the avatar',
+    '  text_color      bubble text colour, hex        (default 000000)',
+    '  bubble_color    bubble background colour, hex  (default ffffff)',
+    '  bg_color        flatten onto this colour, hex  (default transparent)',
+    '  bubble          chat bubble style id, with text (default: engine bubble)',
+    '',
+    'Example:',
+    '  /avatarimage?figure=hd-180-1.ch-255-66.lg-280-110.sh-305-62&action=wlk,wav&direction=2&size=l',
+    '  /avatarimage?figure=hd-180-1.ch-255-66&text=Hello!&bubble_color=2266cc&text_color=ffffff',
+    '',
+    ...(CONFIG.generate.enabled
+        ? [`GET ${ CONFIG.generate.path }`, '  Browser UI to build a figure and copy/download the image.', '']
+        : []),
+    ...(CONFIG.scene.enabled
+        ? [
+            `GET ${ CONFIG.scene.path }?s=<encoded scene>`,
+            '  Renders several avatars, images and text into one PNG.',
+            `  Built visually in ${ CONFIG.generate.path }/scene`,
+            ''
+        ]
+        : [])
+].join('\n');
 
-            ...(CONFIG.generate.enabled
-                ? [`GET ${ CONFIG.generate.path }`, '  Browser UI to build a figure and copy/download the image.', '']
-                : [])
-        ].join('\n')
-    );
+const MASCOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'franck.png');
+
+app.get('/mascot.png', (req, res) => {
+    if (!existsSync(MASCOT)) return res.status(404).end();
+
+    res.set('Cache-Control', 'public, max-age=86400');
+
+    return res.type('image/png').send(readFileSync(MASCOT));
+});
+
+app.get('/', (req, res) => {
+    // Browsers ask for text/html explicitly; curl, monitoring and scripts send
+    // */* and keep the plain-text listing they have always had.
+    if (!String(req.headers.accept || '').includes('text/html')) {
+        return res.type('text/plain').send(apiReference());
+    }
+
+    const html = renderLandingPage({
+        title: CONFIG.generate.title,
+        hotelUrl: CONFIG.hotel.url,
+        hotelName: CONFIG.hotel.name,
+        mascot: existsSync(MASCOT) ? '/mascot.png' : '',
+        generatePath: CONFIG.generate.enabled && !CONFIG.generate.token ? CONFIG.generate.path : '',
+        scenePath: CONFIG.generate.enabled && CONFIG.scene.enabled && !CONFIG.generate.token
+            ? `${ CONFIG.generate.path }/scene`
+            : '',
+        apiText: apiReference()
+    });
+
+    res.set('Cache-Control', 'no-store');
+
+    return res.type('text/html; charset=utf-8').send(html);
 });
 
 const sendImage = (res, buffer, animated, cacheState) => {
@@ -193,21 +238,63 @@ app.get('/avatarimage', cors, rateLimiter, apiKeyGuard, async (req, res) => {
 
     if (!renderer.ready) return res.status(503).type('text/plain').send('Renderer still starting, try again shortly.');
 
+    // A sprite bubble is composited here instead of being drawn by the renderer,
+    // so the avatar itself is rendered without any speech bubble.
+    let bubble = null;
+
+    if (descriptor.bubble && descriptor.text && CONFIG.bubbles.enabled) {
+        try {
+            bubble = await getBubble(descriptor.bubble);
+        } catch (error) {
+            console.warn('[pixinode] bubble catalog failed:', error?.message || error);
+        }
+    }
+
     try {
-        const rendered = await renderer.render(descriptor);
+        const rendered = await renderer.render(bubble ? { ...descriptor, text: null } : descriptor);
 
         if (rendered?._diag) console.log('[pixinode] effect diag:', JSON.stringify(rendered._diag));
 
         if (!rendered || !rendered.frames?.length) throw new Error('renderer produced no frames');
 
-        const frames = rendered.frames.map((frame) => Buffer.from(frame, 'base64'));
+        let frames = rendered.frames.map((frame) => Buffer.from(frame, 'base64'));
+        let width = rendered.width;
+        let height = rendered.height;
+
+        let postScale = descriptor.postScale;
+
+        // The avatar is enlarged first, then the bubble is composited at that same
+        // factor: its text is drawn at the final size instead of being magnified
+        // pixel by pixel afterwards.
+        if (bubble) {
+            if (postScale !== 1) {
+                frames = frames.map((frame) => upscaleNearest(frame, width, height, postScale));
+                width *= postScale;
+                height *= postScale;
+            }
+
+            const composed = composeWithBubble(
+                { frames, width, height },
+                bubble,
+                descriptor.text,
+                `#${ descriptor.textColor.toString(16).padStart(6, '0') }`,
+                postScale
+            );
+
+            frames = composed.frames;
+            width = composed.width;
+            height = composed.height;
+            postScale = 1;
+        }
+
+        if (descriptor.background !== null) frames = flattenFrames(frames, descriptor.background);
 
         const buffer = encodeFrames({
             frames,
-            width: rendered.width,
-            height: rendered.height,
+            width,
+            height,
             delays: rendered.delays,
-            postScale: descriptor.postScale
+            postScale
         });
 
         cache.set(cacheKey, { buffer, animated: rendered.animated });
@@ -225,6 +312,58 @@ app.get('/avatarimage', cors, rateLimiter, apiKeyGuard, async (req, res) => {
         return res.status(500).type('text/plain').send('Render failed.');
     }
 });
+
+if (CONFIG.scene.enabled) {
+    app.get(CONFIG.scene.path, cors, rateLimiter, apiKeyGuard, async (req, res) => {
+        let scene;
+
+        try {
+            scene = decodeScene(Array.isArray(req.query.s) ? req.query.s[0] : req.query.s);
+        } catch (error) {
+            const message = error instanceof SceneError ? error.message : 'Bad scene.';
+
+            return res.status(400).type('text/plain').send(message);
+        }
+
+        const cacheKey = `scene:${ JSON.stringify(scene) }`;
+        const etag = `"${ createHash('sha1').update(`${ cacheKey }|${ CONFIG.assetVersion }`).digest('base64') }"`;
+
+        res.set('ETag', etag);
+        res.set('Cache-Control', `public, max-age=${ Math.floor(CONFIG.cacheTtlMs / 1000) }`);
+
+        if (req.headers['if-none-match'] === etag) {
+            res.set('X-Cache', 'REVALIDATED');
+
+            return res.status(304).end();
+        }
+
+        const cached = cache.get(cacheKey);
+
+        if (cached) return sendImage(res, cached.buffer, cached.animated, 'HIT');
+
+        if (!renderer.ready) return res.status(503).type('text/plain').send('Renderer still starting, try again shortly.');
+
+        try {
+            const { buffer, animated } = await renderScene(scene, renderer);
+
+            cache.set(cacheKey, { buffer, animated });
+
+            return sendImage(res, buffer, animated, 'MISS');
+        } catch (error) {
+            if (error instanceof SceneError) return res.status(400).type('text/plain').send(error.message);
+
+            if (error?.code === 'OVERLOADED') {
+                res.set('Retry-After', '2');
+
+                return res.status(503).type('text/plain').send('Server busy, try again shortly.');
+            }
+
+            console.error('[pixinode] scene render failed:', error?.message || error);
+
+            return res.status(500).type('text/plain').send('Scene render failed.');
+        }
+    });
+}
 
 const preflightGamedata = async () => {
     const cfg = buildRendererConfig();
@@ -335,6 +474,14 @@ const start = async () => {
         server.headersTimeout = 30_000;
         server.requestTimeout = 60_000;
         console.log(`[pixinode] listening on http://${ CONFIG.host }:${ CONFIG.port }`);
+
+        if (CONFIG.scene.enabled) {
+            console.log(`[pixinode] scene image hosts: ${ CONFIG.scene.imageHosts.length ? CONFIG.scene.imageHosts.join(', ') : '(none)' }`);
+
+            if (CONFIG.scene.imageHosts.includes('*')) {
+                console.warn('[pixinode] AVATAR_IMAGING_SCENE_IMAGE_HOSTS=* lets the server fetch ANY url. Only do this on a trusted network.');
+            }
+        }
 
         if (CONFIG.generate.enabled) {
             const base = CONFIG.generate.publicUrl || `http://${ CONFIG.host }:${ CONFIG.port }`;

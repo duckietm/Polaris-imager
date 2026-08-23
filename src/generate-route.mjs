@@ -1,5 +1,10 @@
 import express from 'express';
 import { renderGeneratePage } from './generate-page.mjs';
+import { renderScenePage } from './scene-page.mjs';
+import { getFigureData } from './figuredata.mjs';
+import { fetchImageBuffer, hostAllowed, SceneError } from './scene.mjs';
+import { getFontManifest, getFontSheet } from './habbo-fonts.mjs';
+import { getBubble, getBubbleManifest, renderBubblePng } from './chat-bubbles.mjs';
 import { createAuth, renderLoginPage, safeEqual } from './generate-auth.mjs';
 import { makeClientIp } from './security.mjs';
 import { findUserByName, searchUsers } from './db.mjs';
@@ -10,7 +15,7 @@ const USERNAME_RE = /^[A-Za-z0-9 ._:@-]{1,64}$/;
 
 const PRESET_KEYS = [
     'figure', 'action', 'gesture', 'direction', 'head_direction', 'headonly',
-    'dance', 'effect', 'size', 'frame_num', 'img_format', 'text', 'text_color', 'bubble_color'
+    'dance', 'effect', 'size', 'frame_num', 'img_format', 'text', 'text_color', 'bubble_color', 'bg_color', 'bubble'
 ];
 
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -66,6 +71,10 @@ export const createGenerateRouter = (CONFIG) => {
     const lookupAvailable = db.enabled || Boolean(gen.lookupUrl);
 
     const searchAvailable = db.enabled;
+    const sceneAvailable = CONFIG.scene.enabled;
+    const fontsAvailable = CONFIG.scene.enabled && CONFIG.fonts.enabled;
+    const bubblesAvailable = CONFIG.bubbles.enabled;
+    const wardrobeAvailable = CONFIG.wardrobe.enabled;
 
     const isSecure = (req) => req.secure || req.get('x-forwarded-proto') === 'https';
 
@@ -170,6 +179,10 @@ export const createGenerateRouter = (CONFIG) => {
             lookupEnabled: lookupAvailable,
             searchEnabled: searchAvailable,
             logoutEnabled: gen.authEnabled,
+            publicUrl: gen.publicUrl,
+            sceneEnabled: sceneAvailable,
+            wardrobeEnabled: wardrobeAvailable,
+            bubblesEnabled: bubblesAvailable,
             apiKey: gen.uiApiKey,
             token: gen.token,
             title: gen.title,
@@ -293,6 +306,150 @@ export const createGenerateRouter = (CONFIG) => {
             return res.status(502).json({ ok: false, error: 'Base de données injoignable.' });
         }
     });
+
+    if (sceneAvailable) {
+        router.get('/scene', (req, res) => {
+            const html = renderScenePage({
+                imagerUrl,
+                sceneUrl: gen.publicUrl ? `${ gen.publicUrl }${ CONFIG.scene.path }` : CONFIG.scene.path,
+                base: req.baseUrl,
+                lookupEnabled: lookupAvailable,
+                searchEnabled: searchAvailable,
+                wardrobeEnabled: wardrobeAvailable,
+                logoutEnabled: gen.authEnabled,
+                publicUrl: gen.publicUrl,
+                imageHosts: CONFIG.scene.imageHosts,
+                fontsEnabled: fontsAvailable,
+                bubblesEnabled: bubblesAvailable,
+                apiKey: gen.uiApiKey,
+                token: gen.token,
+                title: gen.title,
+                figure: gen.defaultFigure,
+                maxLayers: CONFIG.scene.maxLayers
+            });
+
+            res.set('Cache-Control', 'no-store');
+            res.set(
+                'Content-Security-Policy',
+                "default-src 'none'; img-src 'self' data: https: http:; style-src 'unsafe-inline'; " +
+                "script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'"
+            );
+
+            return res.type('text/html; charset=utf-8').send(html);
+        });
+    }
+
+    if (sceneAvailable) {
+        router.get('/image', async (req, res) => {
+            const url = first(req.query.u) ?? '';
+
+            if (!hostAllowed(url)) {
+                return res.status(403).type('text/plain').send(CONFIG.scene.imageHosts.length
+                    ? `Host not allowed. Allowed: ${ CONFIG.scene.imageHosts.join(', ') }.`
+                    : 'No image host is configured (AVATAR_IMAGING_SCENE_IMAGE_HOSTS).');
+            }
+
+            try {
+                const { buffer, type } = await fetchImageBuffer(url);
+
+                res.set('Cache-Control', 'private, max-age=600');
+                res.type(type);
+
+                return res.send(buffer);
+            } catch (error) {
+                const message = error instanceof SceneError ? error.message : 'Could not load that image.';
+
+                return res.status(502).type('text/plain').send(message);
+            }
+        });
+    }
+
+    if (bubblesAvailable) {
+        router.get('/bubbles', async (req, res) => {
+            try {
+                const bubbles = await getBubbleManifest();
+
+                res.set('Cache-Control', 'private, max-age=3600');
+
+                return res.json({ ok: true, bubbles });
+            } catch (error) {
+                console.error('[pixinode] bubble catalog failed:', error?.message || error);
+
+                return res.status(502).json({ ok: false, error: 'Bubbles unavailable.' });
+            }
+        });
+
+        router.get('/bubble.png', async (req, res) => {
+            try {
+                const bubble = await getBubble(first(req.query.id) ?? '');
+
+                if (!bubble) return res.status(404).type('text/plain').send('Unknown bubble.');
+
+                const text = String(first(req.query.text) ?? '').slice(0, 120) || 'Aa';
+                const colour = String(first(req.query.text_color) ?? '000000').replace('#', '');
+                const scale = Math.min(4, Math.max(1, parseInt(first(req.query.scale) ?? '1', 10) || 1));
+                const png = renderBubblePng(bubble, text, `#${ /^[0-9a-fA-F]{6}$/.test(colour) ? colour : '000000' }`, scale);
+
+                res.set('Cache-Control', 'private, max-age=600');
+                res.type('image/png');
+
+                return res.send(png);
+            } catch (error) {
+                console.error('[pixinode] bubble preview failed:', error?.message || error);
+
+                return res.status(502).type('text/plain').send('Bubble unavailable.');
+            }
+        });
+    }
+
+    if (fontsAvailable) {
+        router.get('/fonts', async (req, res) => {
+            try {
+                const fonts = (await getFontManifest()).filter((font) => font.glyphs && Object.keys(font.glyphs).length);
+
+                res.set('Cache-Control', 'private, max-age=3600');
+
+                return res.json({ ok: true, fonts });
+            } catch (error) {
+                console.error('[pixinode] font catalog failed:', error?.message || error);
+
+                return res.status(502).json({ ok: false, error: 'Fonts unavailable.' });
+            }
+        });
+
+        router.get('/fonts/:id.png', async (req, res) => {
+            try {
+                const sheet = await getFontSheet(String(req.params.id || ''));
+
+                if (!sheet) return res.status(404).type('text/plain').send('Unknown font.');
+
+                res.set('Cache-Control', 'public, max-age=86400');
+                res.type('image/png');
+
+                return res.send(sheet);
+            } catch (error) {
+                console.error('[pixinode] font sheet failed:', error?.message || error);
+
+                return res.status(502).type('text/plain').send('Font unavailable.');
+            }
+        });
+    }
+
+    if (wardrobeAvailable) {
+        router.get('/figuredata', async (req, res) => {
+            try {
+                const data = await getFigureData();
+
+                res.set('Cache-Control', 'private, max-age=900');
+
+                return res.json({ ok: true, data });
+            } catch (error) {
+                console.error('[pixinode] figuredata failed:', error?.message || error);
+
+                return res.status(502).json({ ok: false, error: 'Figuredata unavailable.' });
+            }
+        });
+    }
 
     return router;
 };

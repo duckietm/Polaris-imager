@@ -1,3 +1,4 @@
+import { WARDROBE_CSS, WARDROBE_JS } from './wardrobe-widget.mjs';
 const esc = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -13,6 +14,10 @@ export const renderGeneratePage = ({
     lookupEnabled = false,
     searchEnabled = false,
     logoutEnabled = false,
+    publicUrl = '',
+    sceneEnabled = false,
+    wardrobeEnabled = false,
+    bubblesEnabled = false,
     apiKey = '',
     token = '',
     title = 'Avatar Studio',
@@ -80,7 +85,11 @@ a{color:var(--sky-dark)}
                    linear-gradient(45deg,#eef4fa 25%,transparent 25%,transparent 75%,#eef4fa 75%);
   background-size:18px 18px; background-position:0 0,9px 9px;
 }
-.preview img{max-width:100%; image-rendering:pixelated; display:block}
+.preview img{max-width:100%; display:block; image-rendering:pixelated}
+/* Nearest-neighbour is right at 1:1 or when enlarging, but it wrecks a picture
+   that has to shrink to fit the card — a bubble makes the image wide enough for
+   that to happen, and the text is the first thing to suffer. */
+.preview img.fit{image-rendering:auto}
 
 .preview img:not([src]){display:none}
 .preview::before,.preview::after{content:""; position:absolute; width:16px; height:16px; pointer-events:none}
@@ -171,6 +180,7 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
 .foot{max-width:1240px; margin:0 auto; padding:6px 22px 34px; color:#93a3b6; font-size:11.5px;
   font-family:var(--mono); letter-spacing:.04em}
 @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+${ WARDROBE_CSS }
 </style>
 </head>
 <body>
@@ -179,6 +189,9 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
   <div class="topIn">
     <div class="brand"><b>&#9632;</b> ${esc(title)}</div>
     <div class="tagline">nitro render &middot; @pixi/node &middot; /avatarimage</div>
+    ${ sceneEnabled
+        ? `<a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="${ esc(base) }/scene" data-i18n="createScene">Create a scene</a>`
+        : '' }
     ${ logoutEnabled
 
         ? `<a class="btn" style="padding:6px 12px;font-size:12px" href="${ esc(base) }/logout" data-i18n="logout">Sign out</a>`
@@ -234,6 +247,9 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
           <small data-i18n="figureHint">Editable directly.</small>
         </div>
       </div>
+      ${ wardrobeEnabled
+          ? '<button type="button" class="btn btn-block" id="openWardrobe" style="margin-top:4px" data-i18n="openWardrobe">Change clothes</button>'
+          : '' }
     </div>
 
     <div class="card">
@@ -316,12 +332,17 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
         <label for="fText" data-i18n="message">Message</label>
         <input type="text" id="fText" maxlength="100" placeholder="Leave empty for no bubble" data-i18n-ph="msgPh">
       </div>
+      <div class="field" id="bubbleStyleField" style="display:none">
+        <label for="fBubble" data-i18n="bubbleStyle">Bubble style</label>
+        <select id="fBubble"><option value="" data-i18n="bubblePlain">Colour</option></select>
+        <div id="bubblePreview" style="margin-top:8px;min-height:26px"></div>
+      </div>
       <div class="row" style="margin-bottom:0">
         <div class="field" style="margin-bottom:0">
           <label for="fTextColor" data-i18n="textColor">Text colour</label>
           <input type="color" id="fTextColor" value="#000000">
         </div>
-        <div class="field" style="margin-bottom:0">
+        <div class="field" id="bubbleColorField" style="margin-bottom:0">
           <label for="fBubbleColor" data-i18n="bubbleColor">Bubble colour</label>
           <input type="color" id="fBubbleColor" value="#ffffff">
         </div>
@@ -330,6 +351,19 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
 
     <div class="card">
       <h2 data-i18n="output">Output</h2>
+      <div class="row">
+        <div class="field">
+          <label for="fBg" data-i18n="imageBg">Image background</label>
+          <select id="fBg">
+            <option value="0" data-i18n="bgTransparent">Transparent</option>
+            <option value="1" data-i18n="bgSolid">Solid colour</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fBgColor" data-i18n="colour">Colour</label>
+          <input type="color" id="fBgColor" value="#ffffff">
+        </div>
+      </div>
       <div class="row" style="margin-bottom:0">
         <div class="field" style="margin-bottom:0">
           <label for="fFormat" data-i18n="format">Format</label>
@@ -367,6 +401,9 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
   var SEARCH   = ${js(searchEnabled)};
   var API_KEY  = ${js(apiKey)};
   var TOKEN    = ${js(token)};
+  var WARDROBE = ${js(wardrobeEnabled)};
+  var BUBBLES  = ${js(bubblesEnabled)};
+  var PUBLIC   = ${js(publicUrl)};
   var PRESET   = ${js(query)};
 
   var $ = function (id) { return document.getElementById(id); };
@@ -402,7 +439,10 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       notFound: 'Player not found.', lookupDown: 'Lookup unavailable.',
       copied: 'Copied!', tagCopied: 'Tag copied!', linkCopied: 'Link copied!',
       copyDenied: 'Copy blocked by the browser (HTTPS required).',
-      direction: 'Direction', previewAlt: 'Avatar preview'
+      direction: 'Direction', previewAlt: 'Avatar preview',
+      createScene: 'Create a scene',
+      bubbleStyle: 'Bubble style', bubblePlain: 'Colour',
+      imageBg: 'Image background', bgTransparent: 'Transparent', bgSolid: 'Solid colour', colour: 'Colour', openWardrobe: 'Change clothes', wardrobe: 'Wardrobe', close: 'Close', showHc: 'Show HC', removeItem: 'Remove', genderAll: 'All', genderMale: 'Male', genderFemale: 'Female', noItems: 'Nothing here with these filters.', loading: 'Loading…', wardrobeDown: 'Wardrobe unavailable.', cat_hd: 'Face', cat_hr: 'Hair', cat_ha: 'Hat', cat_he: 'Head accessory', cat_ea: 'Glasses', cat_fa: 'Face accessory', cat_ch: 'Shirt', cat_cc: 'Coat', cat_cp: 'Print', cat_ca: 'Chest accessory', cat_wa: 'Belt', cat_lg: 'Trousers', cat_sh: 'Shoes'
     },
     nl: {
       preview: 'Voorbeeld', copyUrl: 'Adres kopiëren', download: 'Downloaden',
@@ -432,7 +472,10 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       notFound: 'Speler niet gevonden.', lookupDown: 'Zoeken niet beschikbaar.',
       copied: 'Gekopieerd!', tagCopied: 'Tag gekopieerd!', linkCopied: 'Link gekopieerd!',
       copyDenied: 'Kopiëren geblokkeerd door de browser (HTTPS vereist).',
-      direction: 'Richting', previewAlt: 'Avatarvoorbeeld'
+      direction: 'Richting', previewAlt: 'Avatarvoorbeeld',
+      createScene: 'Scène maken',
+      bubbleStyle: 'Ballonstijl', bubblePlain: 'Kleur',
+      imageBg: 'Achtergrond afbeelding', bgTransparent: 'Transparant', bgSolid: 'Effen kleur', colour: 'Kleur', openWardrobe: 'Kleding wijzigen', wardrobe: 'Kledingkast', close: 'Sluiten', showHc: 'HC tonen', removeItem: 'Verwijderen', genderAll: 'Alle', genderMale: 'Man', genderFemale: 'Vrouw', noItems: 'Niets met deze filters.', loading: 'Laden…', wardrobeDown: 'Kledingkast niet beschikbaar.', cat_hd: 'Gezicht', cat_hr: 'Haar', cat_ha: 'Hoed', cat_he: 'Hoofdaccessoire', cat_ea: 'Bril', cat_fa: 'Gezichtsaccessoire', cat_ch: 'Shirt', cat_cc: 'Jas', cat_cp: 'Print', cat_ca: 'Borstaccessoire', cat_wa: 'Riem', cat_lg: 'Broek', cat_sh: 'Schoenen'
     },
     es: {
       preview: 'Vista previa', copyUrl: 'Copiar URL', download: 'Descargar',
@@ -462,7 +505,10 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       notFound: 'Jugador no encontrado.', lookupDown: 'Búsqueda no disponible.',
       copied: '¡Copiado!', tagCopied: '¡Etiqueta copiada!', linkCopied: '¡Enlace copiado!',
       copyDenied: 'Copia bloqueada por el navegador (se requiere HTTPS).',
-      direction: 'Dirección', previewAlt: 'Vista previa del avatar'
+      direction: 'Dirección', previewAlt: 'Vista previa del avatar',
+      createScene: 'Crear una escena',
+      bubbleStyle: 'Estilo del bocadillo', bubblePlain: 'Color',
+      imageBg: 'Fondo de la imagen', bgTransparent: 'Transparente', bgSolid: 'Color sólido', colour: 'Color', openWardrobe: 'Cambiar de ropa', wardrobe: 'Armario', close: 'Cerrar', showHc: 'Mostrar HC', removeItem: 'Quitar', genderAll: 'Todos', genderMale: 'Hombre', genderFemale: 'Mujer', noItems: 'Nada con estos filtros.', loading: 'Cargando…', wardrobeDown: 'Armario no disponible.', cat_hd: 'Cara', cat_hr: 'Pelo', cat_ha: 'Sombrero', cat_he: 'Accesorio de cabeza', cat_ea: 'Gafas', cat_fa: 'Accesorio facial', cat_ch: 'Camiseta', cat_cc: 'Abrigo', cat_cp: 'Estampado', cat_ca: 'Accesorio de pecho', cat_wa: 'Cinturón', cat_lg: 'Pantalón', cat_sh: 'Zapatos'
     },
     fr: {
       preview: 'Aperçu', copyUrl: "Copier l'adresse", download: 'Télécharger',
@@ -492,7 +538,10 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       notFound: 'Joueur introuvable.', lookupDown: 'Recherche indisponible.',
       copied: 'Copié !', tagCopied: 'Balise copiée !', linkCopied: 'Lien copié !',
       copyDenied: 'Copie refusée par le navigateur (HTTPS requis).',
-      direction: 'Direction', previewAlt: "Aperçu de l'avatar"
+      direction: 'Direction', previewAlt: "Aperçu de l'avatar",
+      createScene: 'Créer une scène',
+      bubbleStyle: 'Style de bulle', bubblePlain: 'Couleur',
+      imageBg: "Fond de l'image", bgTransparent: 'Transparent', bgSolid: 'Couleur unie', colour: 'Couleur', openWardrobe: 'Changer de vêtements', wardrobe: 'Vestiaire', close: 'Fermer', showHc: 'Afficher les HC', removeItem: 'Retirer', genderAll: 'Tous', genderMale: 'Homme', genderFemale: 'Femme', noItems: 'Rien avec ces filtres.', loading: 'Chargement…', wardrobeDown: 'Vestiaire indisponible.', cat_hd: 'Visage', cat_hr: 'Cheveux', cat_ha: 'Chapeau', cat_he: 'Accessoire de tête', cat_ea: 'Lunettes', cat_fa: 'Accessoire de visage', cat_ch: 'Haut', cat_cc: 'Manteau', cat_cp: 'Motif', cat_ca: 'Accessoire de torse', cat_wa: 'Ceinture', cat_lg: 'Pantalon', cat_sh: 'Chaussures'
     },
     de: {
       preview: 'Vorschau', copyUrl: 'Adresse kopieren', download: 'Herunterladen',
@@ -522,7 +571,11 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       notFound: 'Spieler nicht gefunden.', lookupDown: 'Suche nicht verfügbar.',
       copied: 'Kopiert!', tagCopied: 'Tag kopiert!', linkCopied: 'Link kopiert!',
       copyDenied: 'Kopieren vom Browser blockiert (HTTPS erforderlich).',
-      direction: 'Richtung', previewAlt: 'Avatar-Vorschau'
+      direction: 'Richtung', previewAlt: 'Avatar-Vorschau',
+      createScene: 'Szene erstellen',
+      bubbleStyle: 'Blasenstil', bubblePlain: 'Farbe',
+      imageBg: 'Bildhintergrund', bgTransparent: 'Transparent', bgSolid: 'Einfarbig', colour: 'Farbe', openWardrobe: 'Kleidung ändern', wardrobe: 'Kleiderschrank', close: 'Schließen', showHc: 'HC anzeigen', removeItem: 'Entfernen', genderAll: 'Alle', genderMale: 'Männlich', genderFemale: 'Weiblich', noItems: 'Nichts mit diesen Filtern.', loading: 'Lädt…', wardrobeDown: 'Kleiderschrank nicht verfügbar.', cat_hd: 'Gesicht', cat_hr: 'Haare', cat_ha: 'Hut', cat_he: 'Kopf-Accessoire', cat_ea: 'Brille', cat_fa: 'Gesichts-Accessoire', cat_ch: 'Oberteil', cat_cc: 'Mantel', cat_cp: 'Aufdruck', cat_ca: 'Brust-Accessoire', cat_wa: 'Gürtel', cat_lg: 'Hose', cat_sh: 'Schuhe',
+      createScene: 'Créer une scène', openWardrobe: 'Changer de vêtements', wardrobe: 'Vestiaire', close: 'Fermer', showHc: 'Afficher les HC', removeItem: 'Retirer', genderAll: 'Tous', genderMale: 'Homme', genderFemale: 'Femme', noItems: 'Rien avec ces filtres.', loading: 'Chargement…', wardrobeDown: 'Vestiaire indisponible.', cat_hd: 'Visage', cat_hr: 'Cheveux', cat_ha: 'Chapeau', cat_he: 'Accessoire de tête', cat_ea: 'Lunettes', cat_fa: 'Accessoire de visage', cat_ch: 'Haut', cat_cc: 'Manteau', cat_cp: 'Motif', cat_ca: 'Accessoire de torse', cat_wa: 'Ceinture', cat_lg: 'Pantalon', cat_sh: 'Chaussures'
     }
   };
 
@@ -595,12 +648,14 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
     if (parseInt(val('fDance'), 10) > 0) { p.dance = parseInt(val('fDance'), 10); }
     if (parseInt(val('fFrame'), 10) > 0) { p.frame_num = parseInt(val('fFrame'), 10); }
     if (val('fFormat') !== 'auto') { p.img_format = val('fFormat'); }
+    if (val('fBg') === '1') { p.bg_color = hex('fBgColor') || 'ffffff'; }
 
     var txt = (val('fText') || '').trim();
     if (txt) {
       p.text = txt;
       p.text_color = hex('fTextColor') || '000000';
-      p.bubble_color = hex('fBubbleColor') || 'ffffff';
+      if (BUBBLES && val('fBubble')) { p.bubble = val('fBubble'); }
+      else { p.bubble_color = hex('fBubbleColor') || 'ffffff'; }
     }
     Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
     return p;
@@ -616,6 +671,16 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
     var q = qs(p);
     if (API_KEY) { q += '&key=' + encodeURIComponent(API_KEY); }
     return IMAGER + '?' + q;
+  }
+
+  function isAbsolute(url) {
+    var lower = String(url || '').toLowerCase();
+    return lower.indexOf('http://') === 0 || lower.indexOf('https://') === 0;
+  }
+
+  function absolute(url) {
+    if (isAbsolute(url)) { return url; }
+    return (PUBLIC || location.origin) + url;
   }
 
   function paintUrl(url) {
@@ -640,11 +705,15 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
       return;
     }
     var url = imageUrl(params);
-    paintUrl(url);
+    paintUrl(absolute(url));
     $dl.href = url;
     $dl.setAttribute('download', 'avatar-' + params.figure.slice(0, 24) + '.png');
     $load.style.display = 'flex';
-    $img.onload = $img.onerror = function () { $load.style.display = 'none'; };
+    $img.onload = function () {
+      $load.style.display = 'none';
+      $img.classList.toggle('fit', $img.naturalWidth > $img.clientWidth);
+    };
+    $img.onerror = function () { $load.style.display = 'none'; };
     $img.src = url;
 
     try {
@@ -710,7 +779,7 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
   }
 
   ['fGesture', 'fSize', 'fHeadonly', 'fEffect', 'fDance', 'fFormat', 'fFrame',
-   'fText', 'fTextColor', 'fBubbleColor'].forEach(function (id) {
+   'fText', 'fTextColor', 'fBubbleColor', 'fBg', 'fBgColor', 'fBubble'].forEach(function (id) {
     var e = $(id);
     if (!e) { return; }
     e.addEventListener('change', refresh);
@@ -725,6 +794,8 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
     $('fEffect').value = '0'; $('fDance').value = '0'; $('fFormat').value = 'auto';
     $('fFrame').value = '0'; $('fText').value = '';
     $('fTextColor').value = '#000000'; $('fBubbleColor').value = '#ffffff';
+    $('fBg').value = '0'; $('fBgColor').value = '#ffffff';
+    if ($('fBubble')) { $('fBubble').value = ''; paintBubbleUi(); }
     for (var k = 0; k < chips.length; k++) { chips[k].classList.toggle('on', chips[k].dataset.act === ''); }
     refresh();
   });
@@ -828,13 +899,13 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
   }
 
   $('copyUrl').addEventListener('click', function () {
-    copy(imageUrl(buildParams()), this, t('copied'));
+    copy(absolute(imageUrl(buildParams())), this, t('copied'));
   });
   $('copyImg').addEventListener('click', function () {
-    copy('<img src="' + imageUrl(buildParams()) + '" alt="avatar">', this, t('tagCopied'));
+    copy('<img src="' + absolute(imageUrl(buildParams())) + '" alt="avatar">', this, t('tagCopied'));
   });
   $('copyPage').addEventListener('click', function () {
-    var link = location.origin + location.pathname + '?' + qs(buildParams()) +
+    var link = (PUBLIC || location.origin) + location.pathname + '?' + qs(buildParams()) +
                (TOKEN ? '&token=' + encodeURIComponent(TOKEN) : '');
     copy(link, this, t('linkCopied'));
   });
@@ -861,9 +932,89 @@ input[type=color]{width:100%; height:42px; padding:3px; background:#fff;
     });
     if (p.text_color) { $('fTextColor').value = '#' + String(p.text_color).replace('#', ''); }
     if (p.bubble_color) { $('fBubbleColor').value = '#' + String(p.bubble_color).replace('#', ''); }
+    if (p.bg_color) { $('fBg').value = '1'; $('fBgColor').value = '#' + String(p.bg_color).replace('#', ''); }
+    if (p.bubble && $('fBubble')) { $('fBubble').value = String(p.bubble); paintBubbleUi(); }
   }
 
+${ WARDROBE_JS }
+
+  window.applyLang = applyLang;
+
+  if (WARDROBE) {
+    var wardrobe = createWardrobe({
+      dataUrl: BASE + '/figuredata' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''),
+      thumbUrl: function (figure, head) {
+        var p = { figure: figure, direction: 2, head_direction: 2, size: head ? 'n' : 's' };
+        if (head) { p.headonly = 1; }
+        return imageUrl(p);
+      }
+    });
+
+    var openBtn = $('openWardrobe');
+    if (openBtn) {
+      openBtn.addEventListener('click', function () {
+        wardrobe.open({
+          figure: function () { return $fig.value.trim(); },
+          apply: function (figure) {
+            $fig.value = figure;
+            refresh();
+          }
+        });
+      });
+    }
+  }
+
+  function bubblePreviewUrl() {
+    var id = val('fBubble');
+    if (!id) { return ''; }
+    return BASE + '/bubble.png?id=' + encodeURIComponent(id) +
+      '&text=' + encodeURIComponent((val('fText') || 'Aa').slice(0, 60)) +
+      '&text_color=' + encodeURIComponent(hex('fTextColor') || '000000') +
+      '&scale=2' +
+      (TOKEN ? '&token=' + encodeURIComponent(TOKEN) : '');
+  }
+
+  function paintBubbleUi() {
+    if (!BUBBLES) { return; }
+    var chosen = !!val('fBubble');
+    $('bubbleColorField').style.display = chosen ? 'none' : '';
+    var host = $('bubblePreview');
+    host.textContent = '';
+    if (!chosen) { return; }
+    var img = document.createElement('img');
+    img.alt = '';
+    img.style.imageRendering = 'pixelated';
+    img.style.maxWidth = '100%';
+    img.style.zoom = '0.5';
+    img.src = bubblePreviewUrl();
+    host.appendChild(img);
+  }
+
+  function loadBubbles() {
+    if (!BUBBLES) { return; }
+    $('bubbleStyleField').style.display = '';
+    fetch(BASE + '/bubbles' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''), { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) { return; }
+        var sel = $('fBubble');
+        d.bubbles.forEach(function (b) {
+          var o = document.createElement('option');
+          o.value = b.id;
+          o.textContent = '#' + b.id;
+          sel.appendChild(o);
+        });
+      })
+      .catch(function () {});
+  }
+
+  ['fBubble', 'fText', 'fTextColor'].forEach(function (id) {
+    var e = $(id);
+    if (e) { e.addEventListener('change', paintBubbleUi); }
+  });
+
   buildDirGrids();
+  loadBubbles();
   applyLang();
   applyPreset(PRESET);
   refresh();

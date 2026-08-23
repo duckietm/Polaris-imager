@@ -212,6 +212,27 @@ requests never reach the renderer. All `AVATAR_IMAGING_*` knobs (port, cache,
 rate limit, API keys, CORS, proxy/real-IP, access log) are in `.env.example` and
 match the browser service's names.
 
+### Landing page — `GET /`
+
+A browser landing on the service root used to get the raw API listing. It now
+gets a plain white page with the mascot explaining that this host renders avatars
+and nothing else, a button back to the hotel, links to the panel and the scene
+composer when they are enabled and not token-protected, and the API reference in
+a dialog. Five languages, same picker as the rest.
+
+The switch is the `Accept` header: browsers ask for `text/html` and get the page,
+while curl, monitoring and scripts send `*/*` and keep the plain-text listing
+byte for byte.
+
+```env
+AVATAR_IMAGING_HOTEL_URL=https://your-hotel.example
+AVATAR_IMAGING_HOTEL_NAME=Your Hotel
+```
+
+Empty URL hides the button. The mascot is `assets/franck.png`, served from
+`GET /mascot.png` — drop another PNG in its place to change it, or delete it and
+the page renders without one.
+
 ### Browser panel — `GET /Generate`
 
 A self-contained page to compose a figure and copy or download the resulting
@@ -437,6 +458,9 @@ filenames (`bubble_2_31_pointer.png` serves both 2 and 31).
 
 With a style selected the avatar is rendered *without* a bubble and the sprite is
 composited above it, frame by frame, so an animated avatar keeps its animation.
+At `size=l` the avatar is enlarged first and the bubble is then drawn at that same
+factor — the sprite nearest-scaled so its pixel art stays crisp, the text drawn at
+the final font size rather than magnified pixel by pixel.
 The bubble colour picker is replaced by the style picker plus a live preview
 rendered by `GET /Generate/bubble.png?id=…&text=…`. Set
 `AVATAR_IMAGING_CHAT_BUBBLES=0` to hide the feature and keep the engine bubble.

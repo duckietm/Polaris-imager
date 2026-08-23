@@ -20,7 +20,7 @@ const outDir = join(root, 'release', name);
 rmSync(join(root, 'release'), { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-for (const entry of ['dist-node', 'src', 'render.mjs', '.env.example', 'README.md', 'DEMARRAGE.md', '.yarnrc.yml', 'yarn.lock']) {
+for (const entry of ['dist-node', 'src', 'render.mjs', '.env.example', 'README.md', 'DEMARRAGE.md', '.yarnrc.yml', 'yarn.lock', 'fonts', 'bubbles', 'assets']) {
     const from = join(root, entry);
 
     if (existsSync(from)) cpSync(from, join(outDir, entry), { recursive: true });

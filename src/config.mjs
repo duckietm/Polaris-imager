@@ -23,6 +23,14 @@ const trustProxy = (value) => {
     return Number.isFinite(n) && String(n) === value.trim() ? n : value;
 };
 
+const hostOf = (value) => {
+    try {
+        return new URL(value).hostname;
+    } catch {
+        return null;
+    }
+};
+
 const list = (value, fallback) => {
     if (!value || !value.trim().length) return fallback;
 
@@ -72,6 +80,39 @@ export const CONFIG = {
     maxFigureLength: int(env.AVATAR_IMAGING_MAX_FIGURE_LEN, 512),
     maxActionLength: int(env.AVATAR_IMAGING_MAX_ACTION_LEN, 256),
     maxTextLength: int(env.AVATAR_IMAGING_MAX_TEXT_LEN, 100),
+
+    scene: {
+        enabled: env.AVATAR_IMAGING_SCENE === undefined ? true : bool(env.AVATAR_IMAGING_SCENE),
+        path: (env.AVATAR_IMAGING_SCENE_PATH || '/scene').trim(),
+        maxLayers: int(env.AVATAR_IMAGING_SCENE_MAX_LAYERS, 24),
+        maxSize: int(env.AVATAR_IMAGING_SCENE_MAX_SIZE, 2000),
+        maxPayload: int(env.AVATAR_IMAGING_SCENE_MAX_PAYLOAD, 16000),
+        maxImageBytes: int(env.AVATAR_IMAGING_SCENE_MAX_IMAGE_BYTES, 4 * 1024 * 1024),
+        imageTimeoutMs: int(env.AVATAR_IMAGING_SCENE_IMAGE_TIMEOUT_MS, 8000),
+        imageHosts: [...new Set([
+            ...list(env.AVATAR_IMAGING_SCENE_IMAGE_HOSTS, []),
+            hostOf(env.NITRO_GAMEDATA_URL),
+            hostOf(env.NITRO_ASSET_URL),
+            hostOf(env.AVATAR_IMAGING_PUBLIC_URL)
+        ].filter(Boolean))]
+    },
+
+    hotel: {
+        url: (env.AVATAR_IMAGING_HOTEL_URL || '').trim(),
+        name: (env.AVATAR_IMAGING_HOTEL_NAME || '').trim()
+    },
+
+    bubbles: {
+        enabled: env.AVATAR_IMAGING_CHAT_BUBBLES === undefined ? true : bool(env.AVATAR_IMAGING_CHAT_BUBBLES)
+    },
+
+    fonts: {
+        enabled: env.AVATAR_IMAGING_HABBO_FONTS === undefined ? true : bool(env.AVATAR_IMAGING_HABBO_FONTS)
+    },
+
+    wardrobe: {
+        enabled: env.AVATAR_IMAGING_WARDROBE === undefined ? true : bool(env.AVATAR_IMAGING_WARDROBE)
+    },
 
     generate: {
 

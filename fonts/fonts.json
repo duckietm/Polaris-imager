@@ -1,0 +1,18 @@
+[
+  { "name": "Habbo", "src": "fonts/habbofont.png" },
+  { "name": "Artic", "src": "fonts/artic.gif" },
+  { "name": "Base", "src": "fonts/base.gif" },
+  { "name": "BattleBanzai", "src": "fonts/battlebanzai.gif" },
+  { "name": "Bling", "src": "fonts/bling.gif" },
+  { "name": "FX", "src": "fonts/fx.gif" },
+  { "name": "Gaming", "src": "fonts/gaming.gif" },
+  { "name": "Habbo Cliker", "src": "fonts/habbo_cliker.gif" },
+  { "name": "Habbo Ribbon", "src": "fonts/habbo_ribbon.gif" },
+  { "name": "Hands", "src": "fonts/hands.gif" },
+  { "name": "HC Big", "src": "fonts/hc_big.gif" },
+  { "name": "Lido", "src": "fonts/lido.gif" },
+  { "name": "Scifi", "src": "fonts/scifi.gif" },
+  { "name": "Unknown Blue", "src": "fonts/unknow_blue.gif" },
+  { "name": "Unknown Blue 2", "src": "fonts/unknow_blue2.gif" },
+  { "name": "UVSA", "src": "fonts/uvsa.gif" }
+]

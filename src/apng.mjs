@@ -4,7 +4,7 @@ const UPNG = UPNGImport?.encode ? UPNGImport : (UPNGImport?.default ?? UPNGImpor
 
 const toArrayBuffer = (buf) => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 
-const upscaleNearest = (rgba, width, height, factor) => {
+export const upscaleNearest = (rgba, width, height, factor) => {
     const outWidth = width * factor;
     const outHeight = height * factor;
     const out = Buffer.allocUnsafe(outWidth * outHeight * 4);
@@ -25,6 +25,28 @@ const upscaleNearest = (rgba, width, height, factor) => {
     }
 
     return out;
+};
+
+export const flattenFrames = (frames, colour) => {
+    const r = (colour >> 16) & 0xff;
+    const g = (colour >> 8) & 0xff;
+    const b = colour & 0xff;
+
+    return frames.map((frame) => {
+        const out = Buffer.allocUnsafe(frame.length);
+
+        for (let i = 0; i < frame.length; i += 4) {
+            const alpha = frame[i + 3] / 255;
+            const inverse = 1 - alpha;
+
+            out[i] = frame[i] * alpha + r * inverse;
+            out[i + 1] = frame[i + 1] * alpha + g * inverse;
+            out[i + 2] = frame[i + 2] * alpha + b * inverse;
+            out[i + 3] = 255;
+        }
+
+        return out;
+    });
 };
 
 export const encodeFrames = ({ frames, width, height, delays = [], postScale = 1 }) => {
