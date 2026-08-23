@@ -6,7 +6,7 @@
 
 FROM node:20-bookworm AS builder
 
-ARG RENDERER_REPO=https://github.com/duckietm/Nitro_Render_V3.git
+ARG RENDERER_REPO=https://github.com/duckietm/Octane-Renderer.git
 ARG RENDERER_REF=main
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
