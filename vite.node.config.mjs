@@ -14,7 +14,7 @@ const resolveRenderer = () => {
         }
     }
 
-    return resolve(import.meta.dirname, '..', 'Nitro-Renderer');
+    return resolve(import.meta.dirname, '..', 'Octane-Renderer');
 };
 
 const RENDERER = resolveRenderer();
